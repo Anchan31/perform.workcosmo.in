@@ -3,6 +3,7 @@ import {
     getAuth,
     onAuthStateChanged,
     signInWithEmailAndPassword,
+    signInWithCustomToken,
     signOut,
     sendPasswordResetEmail,
     setPersistence,
@@ -45,6 +46,7 @@ export {
     query,
     sendPasswordResetEmail,
     signInWithEmailAndPassword,
+    signInWithCustomToken,
     signOut,
     where
 };

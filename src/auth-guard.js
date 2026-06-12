@@ -1,4 +1,4 @@
-import { auth, db, doc, getDoc, onAuthStateChanged, signOut } from "./firebase.js";
+import { auth, db, doc, getDoc, onAuthStateChanged, signInWithCustomToken, signOut } from "./firebase.js";
 
 // Helper to normalize and retrieve companyId
 export function getCompanyId() {
@@ -12,11 +12,63 @@ export function getCompanyId() {
     return cid.toLowerCase().trim();
 }
 
+async function performSSOLogin(idToken) {
+    const isLocal = window.location.hostname.toLowerCase() === 'localhost' || window.location.hostname.toLowerCase() === '127.0.0.1';
+    const urls = [];
+    if (isLocal) {
+        urls.push("http://localhost:8080/api/sso");
+    }
+    urls.push("https://workcosmo.in/api/sso");
+
+    let lastError = null;
+    for (const url of urls) {
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idToken })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.customToken) return data.customToken;
+            }
+        } catch (err) {
+            lastError = err;
+        }
+    }
+    throw lastError || new Error("SSO Token Exchange failed");
+}
+
 export function initAuthGuard(onSuccess) {
     const loader = document.getElementById("auth-loader");
     const appShell = document.getElementById("app-shell");
 
-    onAuthStateChanged(auth, async (user) => {
+    (async () => {
+        const params = new URLSearchParams(window.location.search);
+        const ssoToken = params.get("ssoToken");
+
+        if (ssoToken) {
+            if (loader) {
+                const statusEl = loader.querySelector("p") || loader;
+                statusEl.textContent = "Signing in with Space Single Sign-On...";
+            }
+            try {
+                console.log("SSO token found, exchanging...");
+                const customToken = await performSSOLogin(ssoToken);
+                await signInWithCustomToken(auth, customToken);
+                
+                // Clear ssoToken from URL
+                params.delete("ssoToken");
+                const newSearch = params.toString();
+                const cleanUrl = window.location.pathname + (newSearch ? "?" + newSearch : "");
+                window.history.replaceState({}, document.title, cleanUrl);
+            } catch (err) {
+                console.error("SSO Token Exchange failed:", err);
+                alert("SSO Login failed: " + err.message);
+            }
+        }
+
+        onAuthStateChanged(auth, async (user) => {
         if (!user || user.isAnonymous) {
             // Redirect to Space login
             const cid = getCompanyId();
@@ -82,6 +134,7 @@ export function initAuthGuard(onSuccess) {
             window.location.href = "https://space.workcosmo.in";
         }
     });
+    })();
 
     // Handle logout button
     document.getElementById("sign-out-btn")?.addEventListener("click", async () => {
